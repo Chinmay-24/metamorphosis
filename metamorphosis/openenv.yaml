@@ -1,0 +1,59 @@
+name: customer-support-triage
+version: 1.0.0
+description: OpenEnv environment for customer support email triage
+author: Chinmay-24
+
+env:
+  class: openenv_customer_support.CustomerSupportTriageEnv
+  reset_params:
+    - name: difficulty
+      type: str
+      default: easy
+      description: Task difficulty level
+
+tasks:
+  - id: easy
+    name: Easy Email Triage
+    description: Triage simple customer support emails
+    metrics:
+      - key: success_rate
+        description: Percentage of correctly triaged emails
+      - key: reward
+        description: Cumulative trajectory reward
+  
+  - id: medium
+    name: Medium Email Triage
+    description: Triage moderately complex support emails
+    metrics:
+      - key: success_rate
+        description: Percentage of correctly triaged emails
+      - key: reward
+        description: Cumulative trajectory reward
+  
+  - id: hard
+    name: Hard Email Triage
+    description: Triage complex edge case support emails
+    metrics:
+      - key: success_rate
+        description: Percentage of correctly triaged emails
+      - key: reward
+        description: Cumulative trajectory reward
+
+graders:
+  - task_id: easy
+    class: openenv_customer_support.CustomerSupportTriageEnv
+  - task_id: medium
+    class: openenv_customer_support.CustomerSupportTriageEnv
+  - task_id: hard
+    class: openenv_customer_support.CustomerSupportTriageEnv
+
+api_endpoints:
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+
+requirements:
+  - fastapi>=0.100
+  - uvicorn>=0.23
+  - pydantic>=1.10
+  - openai>=1.3
