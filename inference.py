@@ -48,33 +48,12 @@ def get_client():
     return _client
 
 # Structured logging constants
-START_BLOCK_TEMPLATE = {
-    "timestamp": "",
-    "session_id": "",
-    "task_level": "",
-    "description": "",
-    "model": "",
-    "api_base": "",
-}
-
-STEP_BLOCK_TEMPLATE = {
-    "step_index": 0,
-    "email_id": 0,
-    "email_subject": "",
-    "action": {},
-    "reward": 0.0,
-    "normalized_reward": 0.0,
-    "done": False,
-    "grader_feedback": "",
-}
-
-END_BLOCK_TEMPLATE = {
-    "total_steps": 0,
-    "total_reward": 0.0,
-    "final_score": 0.0,
-    "task_level": "",
-    "success": False,
-        }
+# NOTE: Using key=value format as per spec, not JSON
+LOG_FORMAT_SPEC = """
+[START] task=<task_name> env=customer-support-triage model=<model_name>
+[STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+[END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
+"""
 
 PROMPT_TEMPLATE = """You are a customer support triage assistant. The goal is to classify the email, assign a priority, and provide the correct canned response or escalate if required.
 
@@ -145,94 +124,63 @@ def infer_action(obs) -> Action:
     )
 
 
-def run_task(task_level: str, session_id: str) -> Dict[str, Any]:
+def run_task(task_level: str) -> Dict[str, Any]:
     """Run a single task and collect metrics."""
     env = CustomerSupportTriageEnv(task_level=task_level)
     obs = env.reset(task_level)
     
-    # Collect task description
-    task_description = CustomerSupportTriageEnv.TASKS[task_level]["description"]
-    
-    # Log START block
-    start_block = START_BLOCK_TEMPLATE.copy()
-    start_block.update({
-        "timestamp": datetime.utcnow().isoformat(),
-        "session_id": session_id,
-        "task_level": task_level,
-        "description": task_description,
-        "model": MODEL_NAME,
-        "api_base": API_BASE_URL,
-    })
-    print(f"[START] {json.dumps(start_block)}")
+    # Log START block (key=value format)
+    print(f"[START] task={task_level} env=customer-support-triage model={MODEL_NAME}")
     
     total_reward = 0.0
     step_count = 0
-    steps = []
+    rewards = []
     
     while True:
         try:
             action = infer_action(obs)
         except Exception as e:
-            print(f"ERROR: Failed to infer action at step {step_count}: {e}", file=sys.stderr)
+            error_msg = str(e)
+            print(f"[STEP] step={step_count + 1} action=fallback reward=0.00 done=false error={error_msg}", flush=True)
             # Use a fallback action
             action = Action(label="technical", priority="medium", response_template=None, escalate=False)
         
         obs, reward, done, info = env.step(action)
         total_reward += reward.value
         step_count += 1
+        rewards.append(reward.value)
         
-        # Log STEP block
-        step_block = STEP_BLOCK_TEMPLATE.copy()
-        step_block.update({
-            "step_index": step_count,
-            "email_id": info.get("email_index", 0),
-            "email_subject": obs.email_subject if not done else "",
-            "action": {
-                "label": action.label,
-                "priority": action.priority,
-                "response_template": action.response_template,
-                "escalate": action.escalate,
-            },
-            "reward": reward.value,
-            "normalized_reward": reward.normalized_value,
-            "done": done,
-            "grader_feedback": reward.message,
-        })
-        print(f"[STEP] {json.dumps(step_block)}")
-        steps.append(step_block)
+        # Format action as string
+        action_str = f"{action.label}|{action.priority}|{action.response_template or 'none'}|{action.escalate}"
+        
+        # Log STEP block (key=value format)
+        done_str = str(done).lower()
+        print(f"[STEP] step={step_count} action={action_str} reward={reward.value:.2f} done={done_str} error=null", flush=True)
         
         if done:
             break
     
-    # Compute final score
+    # Compute final score (normalized to [0, 1])
     num_emails = len(env.email_order)
-    final_score = max(0.0, min(1.0, total_reward / num_emails))
+    final_score = max(0.0, min(1.0, total_reward / num_emails)) if num_emails > 0 else 0.0
+    success = final_score >= 0.5
     
-    # Log END block
-    end_block = END_BLOCK_TEMPLATE.copy()
-    end_block.update({
-        "total_steps": step_count,
-        "total_reward": total_reward,
-        "final_score": final_score,
-        "task_level": task_level,
-        "success": final_score >= 0.5,  # Define success as >= 0.5
-    })
-    print(f"[END] {json.dumps(end_block)}")
+    # Log END block (key=value format)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={step_count} score={final_score:.2f} rewards={rewards_str}", flush=True)
     
     return {
         "task_level": task_level,
         "score": final_score,
         "total_reward": total_reward,
         "steps": step_count,
-        "success": final_score >= 0.5,
+        "success": success,
     }
 
 
 def main():
     """Run baseline inference on all three task levels."""
-    session_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     
-    print(f"Starting inference session: {session_id}", file=sys.stderr)
     print(f"Model: {MODEL_NAME}", file=sys.stderr)
     print(f"API Base: {API_BASE_URL}", file=sys.stderr)
     
@@ -240,7 +188,7 @@ def main():
     for level in ["easy", "medium", "hard"]:
         print(f"\n--- Running task: {level} ---", file=sys.stderr)
         try:
-            results[level] = run_task(level, session_id)
+            results[level] = run_task(level)
             print(f"Task {level} score: {results[level]['score']:.3f}", file=sys.stderr)
         except Exception as e:
             print(f"ERROR: Task {level} failed: {e}", file=sys.stderr)
@@ -251,7 +199,7 @@ def main():
                 "error": str(e),
             }
     
-    # Print summary
+    # Print summary to stderr
     print("\n" + "="*60, file=sys.stderr)
     print("BASELINE INFERENCE SUMMARY", file=sys.stderr)
     print("="*60, file=sys.stderr)

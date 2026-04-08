@@ -1,12 +1,116 @@
 """
-Hugging Face Space application for interactive triage demonstration.
+Hugging Face Space application with REST API + Gradio UI.
 Deployed at the root of the repository.
+
+Serves both:
+- REST API endpoints for validation (POST /reset, etc.)
+- Gradio UI for interactive triage at /
 """
 
+import json
+from typing import Dict, Any
+
 import gradio as gr
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+
 from openenv_customer_support import Action, CustomerSupportTriageEnv
 
 
+# Initialize FastAPI app for REST API
+api = FastAPI(title="Customer Support Triage OpenEnv")
+
+# Store active sessions (simple in-memory state)
+_sessions: Dict[str, Any] = {}
+
+
+@api.post("/reset")
+async def reset_endpoint(task_level: str = "easy") -> JSONResponse:
+    """Reset a triage session and return initial observation."""
+    try:
+        if task_level not in ["easy", "medium", "hard"]:
+            raise HTTPException(status_code=400, detail=f"Invalid task_level: {task_level}")
+        
+        env = CustomerSupportTriageEnv(task_level=task_level)
+        obs = env.reset(task_level)
+        
+        # Store session
+        session_id = f"session_{len(_sessions)}"
+        _sessions[session_id] = {"env": env, "obs": obs}
+        
+        return JSONResponse({
+            "status": "ok",
+            "session_id": session_id,
+            "task_level": task_level,
+            "email_subject": obs.email_subject,
+            "email_body": obs.email_body,
+            "remaining_emails": obs.remaining_emails,
+            "available_labels": obs.available_labels,
+            "available_priorities": obs.available_priorities,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api.post("/step")
+async def step_endpoint(session_id: str, action: Dict[str, Any]) -> JSONResponse:
+    """Execute one step in the environment."""
+    try:
+        if session_id not in _sessions:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        
+        session = _sessions[session_id]
+        env = session["env"]
+        
+        # Parse action
+        agent_action = Action(
+            label=action.get("label", ""),
+            priority=action.get("priority", ""),
+            response_template=action.get("response_template"),
+            escalate=bool(action.get("escalate", False)),
+        )
+        
+        obs, reward, done, info = env.step(agent_action)
+        
+        # Update session
+        _sessions[session_id]["obs"] = obs
+        
+        return JSONResponse({
+            "status": "ok",
+            "email_subject": obs.email_subject if not done else "",
+            "email_body": obs.email_body if not done else "",
+            "remaining_emails": obs.remaining_emails,
+            "reward": reward.value,
+            "normalized_reward": reward.normalized_value,
+            "done": done,
+            "message": reward.message,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api.get("/health")
+async def health_check() -> JSONResponse:
+    """Health check endpoint."""
+    return JSONResponse({"status": "ok", "service": "customer-support-triage"})
+
+
+@api.get("/")
+async def root() -> Dict[str, str]:
+    """Root endpoint with service info."""
+    return {
+        "service": "Customer Support Triage OpenEnv",
+        "status": "running",
+        "endpoints": {
+            "POST /reset": "Reset a triage session",
+            "POST /step": "Execute one step",
+            "GET /health": "Health check",
+            "GET /": "This endpoint",
+        },
+    }
+
+
+# Gradio UI
 def create_interface():
     """Create and return the Gradio interface for the environment."""
     
@@ -113,5 +217,13 @@ def create_interface():
 
 
 if __name__ == "__main__":
+    import uvicorn
+    
+    # Create Gradio interface
     interface = create_interface()
-    interface.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    
+    # Mount Gradio on FastAPI
+    app = gr.mount_gradio_app(api, interface, path="/ui")
+    
+    # Run combined server
+    uvicorn.run(app, host="0.0.0.0", port=7860)

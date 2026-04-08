@@ -22,5 +22,5 @@ ENV PORT=7860
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "from openenv_customer_support import CustomerSupportTriageEnv; CustomerSupportTriageEnv('easy').reset('easy')"
 
-# For HF Spaces: run the Gradio app
-CMD ["python", "-m", "gradio", "spaces_app:create_interface", "--server-name", "0.0.0.0", "--server-port", "7860"]
+# For HF Spaces: run the FastAPI + Gradio hybrid app
+CMD ["python", "spaces_app.py"]
