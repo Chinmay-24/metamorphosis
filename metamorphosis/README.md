@@ -4,6 +4,8 @@ emoji: 🦋
 colorFrom: purple
 colorTo: blue
 sdk: docker
+sdk_version: "1.0"
+python_version: "3.12"
 app_file: spaces_app.py
 pinned: false
 ---
