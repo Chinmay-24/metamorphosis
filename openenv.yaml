@@ -1,0 +1,30 @@
+name: customer-support-triage
+version: 0.1.0
+author: GitHub Copilot
+license: apache-2.0
+description: |
+  A simulated customer support email triage environment for real-world task learning.
+  Agents classify incoming support emails, assign priority, and provide the correct response
+  or escalate when required.
+environment:
+  module: openenv_customer_support.env
+  class: CustomerSupportTriageEnv
+tags:
+  - openenv
+  - customer-support
+  - triage
+  - enterprise
+interface:
+  observation_schema: openenv_customer_support.models.Observation
+  action_schema: openenv_customer_support.models.Action
+  reward_schema: openenv_customer_support.models.Reward
+tasks:
+  - name: label-classification
+    description: Classify inbound support emails into issue categories.
+    difficulty: easy
+  - name: label-priority-classification
+    description: Classify incoming emails and assign the correct priority.
+    difficulty: medium
+  - name: triage-and-response
+    description: Classify, prioritize, and resolve or escalate emails.
+    difficulty: hard
