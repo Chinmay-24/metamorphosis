@@ -89,6 +89,18 @@ async def step_endpoint(session_id: str, action: Dict[str, Any]) -> JSONResponse
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api.get("/state")
+async def state_endpoint(session_id: str) -> JSONResponse:
+    """Return current environment state for a session."""
+    try:
+        if session_id not in _sessions:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        state = _sessions[session_id]["env"].state()
+        return JSONResponse({"status": "ok", "session_id": session_id, "state": state.model_dump()})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api.get("/health")
 async def health_check() -> JSONResponse:
     """Health check endpoint."""
